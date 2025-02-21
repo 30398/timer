@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Timer</title>
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #0f172a;
+            color: #e2e8f0;
+        }
+        .container {
+            background-color: #1e293b;
+            padding: 3rem;
+            border-radius: 24px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+            border: 2px solid #334155;
+            transition: border-color 0.3s ease;
+        }
+        .container:hover {
+            border-color: #475569;
+        }
+        .countdown-container {
+            margin: 1rem 0 2rem 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .time-block {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+        }
+        .time-value {
+            font-size: 6rem;
+            font-weight: 700;
+            color: #38bdf8;
+            font-variant-numeric: tabular-nums;
+            line-height: 1;
+            font-feature-settings: "tnum";
+            min-width: 2ch;
+            transition: color 0.3s ease;
+        }
+        .time-separator {
+            font-size: 6rem;
+            color: #475569;
+            margin: 0 0.2rem;
+            line-height: 1;
+            font-weight: 200;
+        }
+        .time-label {
+            font-size: 0.875rem;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.5rem;
+        }
+        .next-map {
+            font-size: 1.1rem;
+            margin: 1.5rem 0;
+            color: #94a3b8;
+            padding: 1rem;
+            background-color: #334155;
+            border-radius: 12px;
+            display: inline-block;
+        }
+        .button-container {
+            display: flex;
+            justify-content: center;
+            margin: 1.5rem 0;
+        }
+        button {
+            background-color: #0ea5e9;
+            color: white;
+            border: none;
+            padding: 0.8rem 1.5rem;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 1rem;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        button:hover {
+            background-color: #0284c7;
+            transform: translateY(-1px);
+        }
+        .notification-status {
+            margin-top: 1rem;
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        @keyframes glow {
+            0% { box-shadow: 0 0 5px #38bdf8; }
+            50% { box-shadow: 0 0 20px #38bdf8; }
+            100% { box-shadow: 0 0 5px #38bdf8; }
+        }
+        .time-urgent {
+            color: #f472b6 !important;
+        }
+        .time-warning {
+            color: #fbbf24 !important;
+        }
+        .alarm-active {
+            animation: pulse 0.5s infinite;
+        }
+        .container-alert {
+            animation: glow 2s infinite;
+        }
+        .emoji-icon {
+            font-size: 1.2rem;
+            margin-right: 0.5rem;
+        }
+        .progress-ring {
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            right: -10px;
+            bottom: -10px;
+            border-radius: 50%;
+            border: 3px solid #1e293b;
+            border-top-color: #38bdf8;
+            opacity: 0.5;
+            display: none;
+        }
+        .time-block.spinning .progress-ring {
+            display: block;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container" id="mainContainer">
+        <div class="countdown-container">
+            <div class="time-block" id="minuteBlock">
+                <div class="progress-ring"></div>
+                <div class="time-value" id="minutes">--</div>
+                <div class="time-label">min</div>
+            </div>
+            <div class="time-separator">:</div>
+            <div class="time-block" id="secondBlock">
+                <div class="progress-ring"></div>
+                <div class="time-value" id="seconds">--</div>
+                <div class="time-label">sec</div>
+            </div>
+        </div>
+        <div class="next-map" id="nextMap">Next event at approximately: XX:48</div>
+        <div class="button-container">
+            <button onclick="requestNotificationPermission()" id="notificationBtn">
+                <span class="emoji-icon">🔔</span> Enable Notifications
+            </button>
+        </div>
+        <div class="notification-status" id="notificationStatus"></div>
+    </div>
+
+    <script>
+        function getInitialReferenceTime() {
+            const now = new Date();
+            const referenceTime = new Date(now);
+            referenceTime.setHours(19, 48, 0, 0);
+            
+            // Eğer şu an 19:48'den sonraysa, aynı günün 19:48'ini kullan
+            // Eğer şu an 19:48'den önceyse, bir önceki günün 19:48'ini kullan
+            if (now < referenceTime) {
+                referenceTime.setDate(referenceTime.getDate() - 1);
+            }
+            return referenceTime;
+        }
+
+        const REFERENCE_TIME = getInitialReferenceTime();
+        const INTERVAL_MINUTES = 29;
+        const INTERVAL_SECONDS = 0;
+        let audioContext = null;
+
+        const NOTES = {
+            C4: 261.63,
+            E4: 329.63,
+            G4: 392.00,
+            A4: 440.00,
+            C5: 523.25,
+            E5: 659.25
+        };
+
+        function createSound(duration, frequency, type = 'sine', volume = 0.2, fadeIn = 0.1, fadeOut = 0.1) {
+            if (!audioContext) {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            }
+
+            const oscillator = audioContext.createOscillator();
+            const gainNode = audioContext.createGain();
+
+            oscillator.type = type;
+            oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+
+            gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+            gainNode.gain.linearRampToValueAtTime(volume, audioContext.currentTime + fadeIn);
+            gainNode.gain.setValueAtTime(volume, audioContext.currentTime + duration - fadeOut);
+            gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + duration);
+
+            oscillator.connect(gainNode);
+            gainNode.connect(audioContext.destination);
+
+            oscillator.start();
+            oscillator.stop(audioContext.currentTime + duration);
+        }
+
+        function playGentleAlert() {
+            createSound(0.3, NOTES.C4, 'sine', 0.1);
+            setTimeout(() => createSound(0.3, NOTES.E4, 'sine', 0.1), 300);
+            setTimeout(() => createSound(0.3, NOTES.G4, 'sine', 0.1), 600);
+        }
+
+        function playMediumAlert() {
+            createSound(0.2, NOTES.E4, 'sine', 0.15);
+            setTimeout(() => createSound(0.2, NOTES.A4, 'sine', 0.15), 250);
+            setTimeout(() => createSound(0.2, NOTES.C5, 'sine', 0.15), 500);
+        }
+
+        function playUrgentAlert() {
+            createSound(0.15, NOTES.C5, 'sine', 0.2);
+            setTimeout(() => createSound(0.15, NOTES.E5, 'sine', 0.2), 200);
+            setTimeout(() => createSound(0.15, NOTES.G4, 'sine', 0.2), 400);
+            setTimeout(() => createSound(0.3, NOTES.C5, 'sine', 0.2), 600);
+        }
+
+        function updateTimerStyles(totalSeconds) {
+            const minutes = document.getElementById('minutes');
+            const seconds = document.getElementById('seconds');
+            const container = document.getElementById('mainContainer');
+            const minuteBlock = document.getElementById('minuteBlock');
+            const secondBlock = document.getElementById('secondBlock');
+
+            minutes.classList.remove('time-urgent', 'time-warning', 'alarm-active');
+            seconds.classList.remove('time-urgent', 'time-warning', 'alarm-active');
+            container.classList.remove('container-alert');
+            minuteBlock.classList.remove('spinning');
+            secondBlock.classList.remove('spinning');
+
+            if (totalSeconds <= 15) {
+                minutes.classList.add('time-urgent', 'alarm-active');
+                seconds.classList.add('time-urgent', 'alarm-active');
+                container.classList.add('container-alert');
+                minuteBlock.classList.add('spinning');
+                secondBlock.classList.add('spinning');
+            } else if (totalSeconds <= 60) {
+                minutes.classList.add('time-warning');
+                seconds.classList.add('time-warning');
+                minuteBlock.classList.add('spinning');
+            } else if (totalSeconds <= 180) {
+                minutes.classList.add('time-warning');
+            }
+        }
+
+        function getNextMapTime(currentTime) {
+            const intervalMs = (INTERVAL_MINUTES * 60 + INTERVAL_SECONDS) * 1000;
+            const timeSinceReference = currentTime - REFERENCE_TIME;
+            const intervals = Math.floor(timeSinceReference / intervalMs);
+            return new Date(REFERENCE_TIME.getTime() + (intervals + 1) * intervalMs);
+        }
+
+        function formatTime(date) {
+            return date.getMinutes().toString().padStart(2, '0');
+        }
+
+        function sendNotification(message, isUrgent = false) {
+            if (Notification.permission === 'granted') {
+                new Notification(isUrgent ? '⚠️ Event Alert!' : '🔔 Event Reminder', {
+                    body: message,
+                    icon: '/api/placeholder/64/64'
+                });
+            }
+        }
+
+        function updateTimer() {
+            const now = new Date();
+            const nextMapTime = getNextMapTime(now);
+            const timeDiff = nextMapTime - now;
+
+            const minutes = Math.floor(timeDiff / 60000);
+            const seconds = Math.floor((timeDiff % 60000) / 1000);
+
+            document.getElementById('minutes').textContent = minutes.toString().padStart(2, '0');
+            document.getElementById('seconds').textContent = seconds.toString().padStart(2, '0');
+            
+            document.getElementById('nextMap').textContent = 
+                `Next event at approximately: XX:${formatTime(nextMapTime)}`;
+
+            const totalSeconds = minutes * 60 + seconds;
+            updateTimerStyles(totalSeconds);
+            
+            if ([180, 120, 60, 30, 15, 0].includes(totalSeconds)) {
+                if (totalSeconds === 180) {
+                    sendNotification('Event starts in 3 minutes');
+                    playGentleAlert();
+                }
+                if (totalSeconds === 120) {
+                    sendNotification('Event starts in 2 minutes');
+                    playGentleAlert();
+                }
+                if (totalSeconds === 60) {
+                    sendNotification('Event starts in 1 minute', true);
+                    playMediumAlert();
+                }
+                if (totalSeconds === 30) {
+                    sendNotification('Event starts in 30 seconds', true);
+                    playMediumAlert();
+                }
+                if (totalSeconds === 15) {
+                    sendNotification('Event starts in 15 seconds!', true);
+                    playUrgentAlert();
+                }
+                if (totalSeconds === 0) {
+                    sendNotification('Event is starting now!', true);
+                    playUrgentAlert();
+                }
+            }
+        }
+
+        function requestNotificationPermission() {
+            Notification.requestPermission().then(function(permission) {
+                updateNotificationStatus();
+            });
+        }
+
+        function updateNotificationStatus() {
+            const status = document.getElementById('notificationStatus');
+            const btn = document.getElementById('notificationBtn');
+            
+            if (Notification.permission === 'granted') {
+                status.textContent = '✅ Notifications enabled';
+                btn.style.display = 'none';
+            } else if (Notification.permission === 'denied') {
+                status.textContent = '❌ Notifications blocked. Please enable them in browser settings.';
+                btn.style.display = 'block';
+            } else {
+                status.textContent = 'Click the button to enable notifications';
+                btn.style.display = 'block';
+            }
+        }
+
+        setInterval(updateTimer, 1000);
+        updateTimer();
+        updateNotificationStatus();
+
+        window.addEventListener('beforeunload', () => {
+            if (audioContext) {
+                audioContext.close();
+            }
+        });
+    </script>
+</body>
+</html>
