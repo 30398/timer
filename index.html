@@ -10,10 +10,14 @@ import {
 
 const NOTIFICATION_TIMES = [180, 120, 60, 30, 15, 0];
 const ADMIN_PASSWORD = '136580';
-const ADMIN_KEYS = ['Control', 'Shift', 'A'];
+const ADMIN_KEYS = ['Control', 'Alt', 'M']; // Yeni kısayol kombinasyonu
 
 const EventTimer = () => {
   const [referenceTime, setReferenceTime] = useState(() => {
+    const saved = localStorage.getItem('referenceTime');
+    if (saved) {
+      return new Date(saved);
+    }
     const initialTime = new Date();
     initialTime.setHours(16, 15, 30);
     return initialTime;
@@ -30,20 +34,120 @@ const EventTimer = () => {
   
   const EVENT_DURATION = 21 * 60 * 1000; // 21 dakika
 
-  // ... (önceki useEffect'ler ve yardımcı fonksiyonlar aynı)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const newPressedKeys = new Set([...pressedKeys, e.key]);
+      setPressedKeys(newPressedKeys);
+      
+      // Ctrl+Alt+M kontrolü
+      if (ADMIN_KEYS.every(key => {
+        const keyMap = {
+          'Control': 'Control',
+          'Alt': 'Alt',
+          'M': 'm'
+        };
+        return newPressedKeys.has(keyMap[key] || key);
+      })) {
+        e.preventDefault(); // Tarayıcı varsayılan davranışını engelle
+        setShowAdminLogin(prev => !prev);
+        setPressedKeys(new Set());
+      }
+    };
 
-  const getNextEventTime = () => {
+    const handleKeyUp = (e) => {
+      setPressedKeys(prev => {
+        const updated = new Set([...prev]);
+        updated.delete(e.key);
+        return updated;
+      });
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [pressedKeys]);
+
+  useEffect(() => {
+    audioRef.current = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdH2Ih3hY...');
+    
+    const timer = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (referenceTime) {
+      localStorage.setItem('referenceTime', referenceTime.toISOString());
+    }
+  }, [referenceTime]);
+
+  const getTimeUntilNextEvent = () => {
     const now = currentTime.getTime();
     const reference = referenceTime.getTime();
     const timeSinceReference = (now - reference) % EVENT_DURATION;
-    const nextEventTime = new Date(now + (EVENT_DURATION - timeSinceReference));
-    return nextEventTime;
+    return EVENT_DURATION - timeSinceReference;
+  };
+
+  const formatTimeLeft = () => {
+    const milliseconds = getTimeUntilNextEvent();
+    const minutes = Math.floor(milliseconds / 60000);
+    const seconds = Math.floor((milliseconds % 60000) / 1000);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  const getNextEventTime = () => {
+    const now = currentTime.getTime();
+    const timeUntilNext = getTimeUntilNextEvent();
+    return new Date(now + timeUntilNext);
   };
 
   const formatNextEventTime = () => {
     const nextEvent = getNextEventTime();
     const minutes = nextEvent.getMinutes();
     return `XX:${minutes.toString().padStart(2, '0')}`;
+  };
+
+  const handleEnableNotifications = async () => {
+    const permission = await Notification.requestPermission();
+    setNotificationsEnabled(permission === 'granted');
+    setShowNotificationHint(false);
+  };
+
+  useEffect(() => {
+    if (!notificationsEnabled) return;
+
+    const timeLeft = getTimeUntilNextEvent() / 1000;
+    
+    NOTIFICATION_TIMES.forEach(notificationTime => {
+      if (Math.floor(timeLeft) === notificationTime) {
+        audioRef.current.play().catch(error => console.log('Audio play failed:', error));
+        
+        if (Notification.permission === 'granted') {
+          new Notification('Event Timer', {
+            body: notificationTime === 0 
+              ? 'Event has started!' 
+              : `Event starts in ${notificationTime} seconds`,
+            icon: '/favicon.ico'
+          });
+        }
+      }
+    });
+  }, [currentTime, notificationsEnabled]);
+
+  const handlePasswordSubmit = () => {
+    if (password === ADMIN_PASSWORD) {
+      setIsAdmin(true);
+      setShowAdminLogin(false);
+      setPassword('');
+    } else {
+      setPassword('');
+    }
   };
 
   return (
@@ -96,6 +200,27 @@ const EventTimer = () => {
             autoFocus
           />
         </div>
+      )}
+
+      {isAdmin && (
+        <Sheet open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
+          <SheetContent>
+            <SheetHeader>
+              <SheetTitle>Settings</SheetTitle>
+            </SheetHeader>
+            <div className="py-4">
+              <label className="block text-sm font-medium mb-2">
+                Reference Time
+              </label>
+              <input
+                type="datetime-local"
+                className="w-full p-2 rounded bg-gray-700 text-white"
+                value={referenceTime.toISOString().slice(0, 16)}
+                onChange={(e) => setReferenceTime(new Date(e.target.value))}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
       )}
     </div>
   );
